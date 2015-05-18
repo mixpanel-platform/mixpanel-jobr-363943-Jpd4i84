@@ -1,15 +1,114 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
-    <meta charset="utf-8">
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/css/reset.css">
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.css">
     <script src="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.js"></script>
   </head>
   <body class="mixpanel-platform-body">
-    <h1>Hello, World!</h1>
-    <script>
-      // Run queries and display results here
-    </script>
+  <div class="mixpanel-platform-section">
+      <div id="dateSelect" style="float: left;"></div>
+      <div style="clear: left"></div>
+      <div id="eventSelectDVD" style="float: left;"></div>
+      <div id="propSelectRev" style="float: left;"></div>
+      <div style="clear: left"></div>
+      <div id="eventSelectDIV" style="float: left;"></div>
+      <div id="propSelectDIV" style="float: left;"></div>
+      <div style="clear: both;"></div>
+      <div id="graph"></div>
+  </div>
+  <div id="table"></div>
+  <script>
+      var dateSelect = $('#dateSelect').MPDatepicker();
+      var dvdEventName = $('#eventSelectDVD').MPEventSelect();
+      var divEventName = $('#eventSelectDIV').MPEventSelect();
+      var divProp = $('#propSelectDIV').MPPropertySelect();
+      var revenueProp = $('#propSelectRev').MPPropertySelect();
+      // Property validation
+      var propCheck = function (){
+        if (divEventName.val() && dvdEventName.val() && revenueProp.val()) {
+          var $divProp = MP.api.topProperties(divEventName.MPEventSelect('value'));
+          var $dvdProp = MP.api.topProperties(dvdEventName.MPEventSelect('value'));
+          divProp.replaceWith('<div id="propSelectDIV" style="float: left;"></div>')
+          divProp = $('#propSelectDIV').MPPropertySelect();
+          $.when($divProp, $dvdProp).done(function(divProps, dvdProps){
+            var props = _.intersection(_.keys(divProps.values()), _.keys(dvdProps.values()))
+
+            propsList = {items:[]}
+            _.each(props, function(key){
+              propsList.items.push({label: key, value: key})
+            })
+            divProp.MPSelect(propsList)
+            divProp.on('change', runQuery);
+            runQuery()
+          })
+        }
+      };
+
+    // Query logic
+     var runQuery = function(){
+        var dateRange = dateSelect.MPDatepicker('value');
+        var divEvent = divEventName.MPEventSelect('value');
+        var dvdEvent  = dvdEventName.MPEventSelect('value');
+
+        // Setting our paramaters to the selected values
+        var divParams = {
+          on: 'properties["' + divProp.val() +'"]',
+          unit: 'day',
+          type: 'unique',
+        };
+
+        var revParams = {
+          event: dvdEvent,
+          inner: 'properties["' + revenueProp.val() + '"]',
+          outer: 'properties["' + divProp.val() + '"]',
+          action: 'sum',
+          unit: 'day',
+        };
+
+        $.extend(revParams, dateRange);
+        $.extend(divParams, dateRange);
+
+        // Lets make requests
+        var $div = MP.api.segment(divEvent, divParams);
+        var $revenue = MP.api.query('api/2.0/segmentation/multiseg', revParams);
+        var data = {};
+        // When requests are complete iterate through all keys and their dates
+        $.when($div, $revenue).done(function(div, rev){
+          _.each(_.keys(div.values()), function(key){
+            data[key] = {};
+            _.each(_.keys(div.values()[key]), function(date){
+                var result = 0;
+                 if (typeof rev.data.values[key] != 'undefined') {
+                   var divisor = rev.data.values[key][date];
+                   var dividend = div.values()[key][date];
+                   result = divisor / dividend;
+                 }
+                 // Validation where the graph broke because it tried to scale infinty
+                 if (result == Infinity|| isNaN(result)){
+                   result = 0;
+                 }
+
+                 // Set the key's date to the result
+                 data[key][date] = result;
+              });
+           });
+
+          // Chart it
+          var chart = $('#graph').MPChart({chartType: 'line'});
+          chart.MPChart('setData', data);
+        })
+      }
+
+     // Responses to UX Changes
+     dvdEventName.on('change', function(r, rEventName) {
+       revenueProp.MPPropertySelect('setEvent', rEventName)
+       propCheck()
+     });
+
+     divEventName.on('change', propCheck);
+     revenueProp.on('change', propCheck);
+     dateSelect.on('change', propCheck);
+  </script>
   </body>
 </html>
